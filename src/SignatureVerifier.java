@@ -7,13 +7,13 @@ import com.sun.org.apache.xpath.internal.XPathAPI;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import org.w3c.dom.xpath.XPathException;
 import org.xml.sax.SAXException;
 
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import javax.xml.xpath.XPathException;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.security.MessageDigest;
@@ -124,33 +124,34 @@ public class SignatureVerifier {
         // TODO Kontrola 3 - kontrola obsahu ds:Transforms a ds:DigestMethod;
 
 
-//        NodeList transformsElements = null;
-//        try {
-//            transformsElements = XPathAPI.selectNodeList(mDocument.getDocumentElement(), "//ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms");
-//
-//        } catch (XPathException e) {
-//            System.out.println("Chyba pri kontrole elementu ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms. Element nebol v dokumente najdeny");
-//            return;
-//        }
-//
-//        for (int i = 0; i < transformsElements.getLength(); i++) {
-//
-//            Element transformsElement = (Element) transformsElements.item(i);
-//            Element transformElement = (Element) transformsElement.getElementsByTagName("ds:Transform").item(0);
-//
-//			/*
-//             * Kontrola obsahu ds:Transforms
-//			 * Musi obsahovať URI niektorého z podporovaných algoritmov
-//			 */
-//            if (!assertElementAttributeValue(transformElement, "Algorithm", transformMethods)) {
-//
-//                System.out.println("Atribút Algorithm elementu ds:Transforms neobsahuje URI niektorého z podporovaných algoritmov");
-//                return;
-//            }
-//        }
+        NodeList transformsElements = null;
+        try {
+            transformsElements = XPathAPI.selectNodeList(mDocument.getDocumentElement(), "//ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms");
+        } catch (XPathException e) {
+            System.out.println("Check 3 : Fail - Chyba pri kontrole elementu ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms. Element nebol v dokumente najdeny");
+            return;
+        } catch (TransformerException e) {
+            e.printStackTrace();
+        }
+
+        for (int i = 0; i < transformsElements.getLength(); i++) {
+
+            Element transformsElement = (Element) transformsElements.item(i);
+            Element transformElement = (Element) transformsElement.getElementsByTagName("ds:Transform").item(0);
+
+			/*
+             * Kontrola obsahu ds:Transforms
+			 * Musi obsahovať URI niektorého z podporovaných algoritmov
+			 */
+            if (!assertElementAttributeValue(transformElement, "Algorithm", transformMethods)) {
+
+                System.out.println("Check 3 : Fail - Atribút Algorithm elementu ds:Transforms neobsahuje URI niektorého z podporovaných algoritmov");
+                return;
+            }
+        }
 
 
-//        NodeList digestMethodElements = null;
+        NodeList digestMethodElements = signedInfo.getElementsByTagName("ds:DigestMethod");
 //        try {
 //            digestMethodElements = XPathAPI.selectNodeList(mDocument.getDocumentElement(), "//ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestMethod");
 //
@@ -159,18 +160,18 @@ public class SignatureVerifier {
 //            System.out.println("Chyba pri kontrole elementu ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestMethod. Element nebol v dokumente najdeny");
 //            return;
 //        }
-//
-////        System.out.println("digestMethodElements" + digestMethodElements + " + size = " + digestMethodElements.getLength());
-//
-//        for (int i = 0; i < digestMethodElements.getLength(); i++) {
-//
-//            Element digestMethodElement = (Element) digestMethodElements.item(i);
-//
-//            if (!assertElementAttributeValue(digestMethodElement, "Algorithm", digestMethods)) {
-//                System.out.println("Atribút Algorithm elementu ds:DigestMethod neobsahuje URI niektorého z podporovaných algoritmov");
-//                return;
-//            }
-//        }
+
+//        System.out.println("digestMethodElements" + digestMethodElements + " + size = " + digestMethodElements.getLength());
+
+        for (int i = 0; i < digestMethodElements.getLength(); i++) {
+
+            Element digestMethodElement = (Element) digestMethodElements.item(i);
+
+            if (!assertElementAttributeValue(digestMethodElement, "Algorithm", digestMethods)) {
+                System.out.println("Check 3 : Fail - Atribút Algorithm elementu ds:DigestMethod neobsahuje URI niektorého z podporovaných algoritmov");
+                return;
+            }
+        }
 
         System.out.println("Check 3 : OK - xmlns:ds is valid");
     }
@@ -180,41 +181,42 @@ public class SignatureVerifier {
         System.out.println("Check 4 : OK - verifyCore is valid");
     }
 
+
     void verifySignature() {
 
-        if(!signature.hasAttribute("Id")){
+        if (!signature.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - signature id attribute is missing");
         }
-        if(!signature.hasAttribute("xmlns:ds")){
+        if (!signature.hasAttribute("xmlns:ds")) {
             System.out.println("Check 5: Fail - signature xmlns:ds attribute is missing");
         }
         // 	ds:SignatureValue
-        if(!signatureValue.hasAttribute("Id")){
+        if (!signatureValue.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - signatureValue id attribute is missing");
         }
 
         // TODO	overenie existencie referencií v ds:SignedInfo a hodnôt atribútov Id a Type
 
         // 	overenie obsahu ds:KeyInfo:
-        if(!keyInfo.hasAttribute("Id")){
+        if (!keyInfo.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - keyInfo id attribute is missing");
         }
 
-        Element x509Data = (Element)keyInfo.getElementsByTagName("ds:X509Data").item(0);
-        Element x509Certificate = (Element)keyInfo.getElementsByTagName("ds:X509Certificate").item(0);
-        Element x509IssuerSerial = (Element)keyInfo.getElementsByTagName("ds:X509IssuerSerial").item(0);
-        Element x509SubjectName = (Element)keyInfo.getElementsByTagName("ds:X509SubjectName").item(0);
+        Element x509Data = (Element) keyInfo.getElementsByTagName("ds:X509Data").item(0);
+        Element x509Certificate = (Element) keyInfo.getElementsByTagName("ds:X509Certificate").item(0);
+        Element x509IssuerSerial = (Element) keyInfo.getElementsByTagName("ds:X509IssuerSerial").item(0);
+        Element x509SubjectName = (Element) keyInfo.getElementsByTagName("ds:X509SubjectName").item(0);
 
-        if(x509Data == null){
+        if (x509Data == null) {
             System.out.println("Check 5: Fail - element x509Data is missing");
         }
-        if(x509Certificate == null){
+        if (x509Certificate == null) {
             System.out.println("Check 5: Fail - element x509Certificate is missing");
         }
-        if(x509IssuerSerial == null){
+        if (x509IssuerSerial == null) {
             System.out.println("Check 5: Fail - element x509IssuerSerial is missing");
         }
-        if(x509SubjectName == null){
+        if (x509SubjectName == null) {
             System.out.println("Check 5: Fail - element x509SubjectName is missing");
         }
 
@@ -222,20 +224,20 @@ public class SignatureVerifier {
 
 
         // 	overenie obsahu ds:SignatureProperties
-        if(!signatureProperties.hasAttribute("Id")){
+        if (!signatureProperties.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - signatureProperties id is missing");
         }
 
         boolean sigVersion = false;
         boolean productInfo = false;
 
-        Element sigProperty1 = (Element)signatureProperties.getElementsByTagName("ds:SignatureProperty").item(0);
-        Element sigProperty2 = (Element)signatureProperties.getElementsByTagName("ds:SignatureProperty").item(1);
+        Element sigProperty1 = (Element) signatureProperties.getElementsByTagName("ds:SignatureProperty").item(0);
+        Element sigProperty2 = (Element) signatureProperties.getElementsByTagName("ds:SignatureProperty").item(1);
 
-        if(sigProperty1 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
-        if(sigProperty2 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
+        if (sigProperty1 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
+        if (sigProperty2 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
 
-        if(sigProperty1 != null && sigProperty2 != null) {
+        if (sigProperty1 != null && sigProperty2 != null) {
             if (sigProperty1.getElementsByTagName("xzep:SignatureVersion") != null) {
                 sigVersion = true;
             }
@@ -254,21 +256,15 @@ public class SignatureVerifier {
             if (!productInfo) System.out.println("Check 5: Fail - xzep:ProductInfos");
         }
 
-        if(!sigProperty1.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))){
+        if (!sigProperty1.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))) {
             System.out.println("Check 5: Fail - SignatureProperty 1 does not have target attribute or is not referencing signature id");
         }
 
-        if(!sigProperty2.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))){
+        if (!sigProperty2.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))) {
             System.out.println("Check 5: Fail - SignatureProperty 2 does not have target attribute or is not referencing signature id");
         }
 
         // 	overenie ds:Manifest elementov
-
-
-
-
-
-
 
 
 //            for(int i=0; i<manifests.getLength();i++) {
@@ -298,9 +294,6 @@ public class SignatureVerifier {
 //                        System.out.println("Check 5: Fail - Referenced object from manifest is either missing or has missing or invalid Id");
 //                    }
 //                    NodeList transforms = manifest.getElementsByTagName("ds:DigestMethod");
-
-
-
 
 
         // TODO kontrola 5
@@ -575,6 +568,21 @@ public class SignatureVerifier {
     }
 
     void verifySignatureValue() {
+
+
+        Element signatureValueElement = (Element) root.getElementsByTagName("ds:SignatureValue").item(0);
+
+        if (signatureValueElement == null) {
+            System.out.println( " Check X: Fail - Element ds:SignatureValue sa nenašiel");
+            return;
+
+        }
+
+        if (!signatureValueElement.hasAttribute("Id")) {
+            System.out.println( " Check X: Fail - Element ds:SignatureValue neobsahuje atribút Id ");
+            return;
+        }
+
         System.out.println("Check 6 : OK - verifySignatureValue is valid");
     }
 
@@ -594,10 +602,11 @@ public class SignatureVerifier {
 
         NodeList manifests = signature.getElementsByTagName("ds:Manifest");
 
-        for(int i=0; i<manifests.getLength();i++) {
+        for (int i = 0; i < manifests.getLength(); i++) {
             Element manifest = (Element) manifests.item(i);
             if (!manifest.hasAttribute("Id")) {
-                System.out.println("Check 5: Fail - manifest id attribute is missing");
+                System.out.println("Check 10: Fail - manifest id attribute is missing");
+                return;
             }
 
 
@@ -606,7 +615,8 @@ public class SignatureVerifier {
             NodeList references = manifest.getElementsByTagName("ds:Reference");
 
             if (references.getLength() != 1) {
-                System.out.println("Check 5: Fail - incorrect number of references in manifest element");
+                System.out.println("Check 10: Fail - incorrect number of references in manifest element");
+                return;
             }
             Map<String, String> digestAlgMap;
             digestAlgMap = new HashMap<String, String>();
@@ -626,7 +636,8 @@ public class SignatureVerifier {
                 boolean canonicalizationSuccessful = false;
 
                 if (!reference.hasAttribute("URI")) {
-                    System.out.println("Check 5: Fail - URI attribute of reference is missing");
+                    System.out.println("Check 10: Fail - URI attribute of reference is missing");
+                    return;
                 } else {
 
                     String URI = reference.getAttribute("URI").substring(1);
@@ -641,7 +652,8 @@ public class SignatureVerifier {
 
 
                 if (referencedObject == null) {
-                    System.out.println("Check 5: Fail - Referenced object from manifest is either missing or has missing or invalid Id");
+                    System.out.println("Check 10: Fail - Referenced object from manifest is either missing or has missing or invalid Id");
+                    return;
                 } else {
 
                     StreamResult result = new StreamResult(new StringWriter());
@@ -676,11 +688,13 @@ public class SignatureVerifier {
                     digAlg = digest.getAttribute("Algorithm");
 
                 } else {
-                    System.out.println("Check 5: Fail - Digest algorithm is missing or is not supported");
+                    System.out.println("Check 10: Fail - Digest algorithm is missing or is not supported");
+                    return;
                 }
                 Element digestValueElement = (Element) reference.getElementsByTagName("ds:DigestValue").item(0);
                 if (digestValueElement == null) {
-                    System.out.println("Check 5: Fail - Digest value is missing from a reference element");
+                    System.out.println("Check 10: Fail - Digest value is missing from a reference element");
+                    return;
                 }
 
                 Canonicalizer canonicalizer = null;
@@ -700,7 +714,8 @@ public class SignatureVerifier {
                             canonicalizationSuccessful = true;
 
                         } catch (InvalidCanonicalizerException e1) {
-                            System.out.println("Check 5: Fail - Invalid Canonicalizing method");
+                            System.out.println("Check 10: Fail - Invalid Canonicalizing method");
+                            return;
                         } catch (CanonicalizationException e) {
                             e.printStackTrace();
                         } catch (SAXException e) {
@@ -712,7 +727,8 @@ public class SignatureVerifier {
                         }
                     }
                 } else {
-                    System.out.println("Check 5: Fail - Transform algorithm is missing or is not supported");
+                    System.out.println("Check 10: Fail - Transform algorithm is missing or is not supported");
+                    return;
                 }
 
 
@@ -727,7 +743,8 @@ public class SignatureVerifier {
                     String actualDigestValue = new String(Base64.encode(messageDigest.digest(objectElementBytes)));
                     String digestValue = digestValueElement.getTextContent();
                     if (digestValue.equals(actualDigestValue) == false) {
-                        System.out.println("Check 5: Fail - Digest Value in ds:Reference object is not equal with the hash content of the referenced object");
+                        System.out.println("Check 10: Fail - Digest Value in ds:Reference object is not equal with the hash content of the referenced object");
+                        return;
                     }
 
 
@@ -736,11 +753,10 @@ public class SignatureVerifier {
         }
 
 
-
         System.out.println("Check 10: OK - verifyManifest is valid");
     }
 
-//    toto je v tom vyssom, je to validne preist oba naraz
+    //    toto je v tom vyssom, je to validne preist oba naraz
     void verifyManifestReferences() {
         System.out.println("Check 11: OK - verifyManifestReferences is valid");
     }
@@ -757,7 +773,7 @@ public class SignatureVerifier {
         System.out.println("Check 14: OK - verifyCertificate is valid");
     }
 
-    protected boolean assertElementAttributeValue(Element element, String attribute, String expectedValue) {
+    boolean assertElementAttributeValue(Element element, String attribute, String expectedValue) {
 
         String actualValue = element.getAttribute(attribute);
 
@@ -769,7 +785,7 @@ public class SignatureVerifier {
         return false;
     }
 
-    protected boolean assertElementAttributeValue(Element element, String attribute, List<String> expectedValues) {
+    boolean assertElementAttributeValue(Element element, String attribute, List<String> expectedValues) {
 
         for (String expectedValue : expectedValues) {
 
@@ -780,6 +796,7 @@ public class SignatureVerifier {
         }
         return false;
     }
+
 }
 
 
