@@ -6,19 +6,24 @@ import com.sun.org.apache.xml.internal.security.c14n.InvalidCanonicalizerExcepti
 import com.sun.org.apache.xpath.internal.XPathAPI;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.w3c.dom.xpath.XPathException;
 import org.xml.sax.SAXException;
 
+import javax.security.cert.CertificateException;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import java.io.IOException;
-import java.io.StringWriter;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.*;
+
 
 public class SignatureVerifier {
     Document mDocument;
@@ -68,6 +73,16 @@ public class SignatureVerifier {
                     "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
                     "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
                     "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
+            }
+    ));
+
+    private List<String> validReferences = new ArrayList<>(Arrays.asList(
+
+            new String[]{
+                    "ds:KeyInfo",
+                    "ds:SignatureProperties",
+                    "xades:SignedProperties",
+                    "ds:Manifest"
             }
     ));
 
@@ -129,10 +144,6 @@ public class SignatureVerifier {
     }
 
     void verifyTransformsAndDigestMethods() {
-        // TODO Kontrola 3 - kontrola obsahu ds:Transforms a ds:DigestMethod;
-
-
-
         NodeList transformsElements = null;
         try {
             transformsElements = XPathAPI.selectNodeList(mDocument.getDocumentElement(), "//ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms");
@@ -204,32 +215,151 @@ public class SignatureVerifier {
             System.out.println("Check 5: Fail - signatureValue id attribute is missing");
         }
 
-        // TODO XPATH problem overenie existencie referencií v ds:SignedInfo a hodnôt atribútov Id a Type
 
-        // 	overenie obsahu ds:KeyInfo:
+
+
+
+
+
+
+
+    }
+
+    void verifySignatureValue() {
+
+
+        Element signatureValueElement = (Element) root.getElementsByTagName("ds:SignatureValue").item(0);
+
+        if (signatureValueElement == null) {
+            System.out.println( " Check X: Fail - Element ds:SignatureValue sa nenašiel");
+            return;
+
+        }
+
+        if (!signatureValueElement.hasAttribute("Id")) {
+            System.out.println( " Check X: Fail - Element ds:SignatureValue neobsahuje atribút Id ");
+            return;
+        }
+
+        System.out.println("Check 6 : OK - verifySignatureValue is valid");
+    }
+
+    void verifySignedInfoReferences() {
+
+        NodeList references = signedInfo.getElementsByTagName("ds:Reference");
+        boolean keyInfoPresent = false;
+        boolean signaturePropertiesPresent = false;
+        boolean signedPropertiesPresent = false;
+
+
+        for(int i=0;i<references.getLength();i++) {
+            Element reference = (Element) references.item(i);
+            if (!reference.hasAttribute("URI")) {
+                System.out.println("Check 7: Fail - URI attribute of reference is missing");
+                return;
+            }
+            Node referencedNode = null;
+
+            String URI = reference.getAttribute("URI").substring(1);
+            try {
+                referencedNode = XPathAPI.selectSingleNode(mDocument.getDocumentElement(), "//*[@Id=\""+URI+"\"]");
+            } catch (TransformerException e) {
+                e.printStackTrace();
+            }
+            if (referencedNode==null){
+                System.out.println("Check 7: Fail - Referenced element doesnt exist");
+                return;
+            }
+
+            if (referencedNode.getNodeName().equals("xades:SignedProperties")){
+                signedPropertiesPresent = true;
+            }
+            if (referencedNode.getNodeName().equals("ds:SignatureProperties")){
+                signaturePropertiesPresent = true;
+            }
+            if (referencedNode.getNodeName().equals("ds:KeyInfo")){
+                keyInfoPresent = true;
+            }
+
+            if (!validReferences.contains(referencedNode.getNodeName())){
+                System.out.println("Check 7: Fail - Referenced element is not a valid object");
+                return;
+            }
+        }
+        if(!signedPropertiesPresent || !signaturePropertiesPresent || !keyInfoPresent){
+            System.out.println("Check 7: Fail - One of the mandatory references is missing in signed info");
+            return;
+        }
+        System.out.println("Check 7 : OK - verifySignedInfoReferences is valid");
+    }
+
+    void verifyKeyInfo() {
         if (!keyInfo.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - keyInfo id attribute is missing");
+            return;
         }
 
         Element x509Data = (Element) keyInfo.getElementsByTagName("ds:X509Data").item(0);
         Element x509Certificate = (Element) keyInfo.getElementsByTagName("ds:X509Certificate").item(0);
         Element x509IssuerSerial = (Element) keyInfo.getElementsByTagName("ds:X509IssuerSerial").item(0);
+        Element x509IssuerSerialNumber = (Element) x509IssuerSerial.getElementsByTagName("ds:X509SerialNumber").item(0);
         Element x509SubjectName = (Element) keyInfo.getElementsByTagName("ds:X509SubjectName").item(0);
 
         if (x509Data == null) {
             System.out.println("Check 5: Fail - element x509Data is missing");
+            return;
         }
         if (x509Certificate == null) {
             System.out.println("Check 5: Fail - element x509Certificate is missing");
+            return;
         }
         if (x509IssuerSerial == null) {
             System.out.println("Check 5: Fail - element x509IssuerSerial is missing");
+            return;
         }
         if (x509SubjectName == null) {
             System.out.println("Check 5: Fail - element x509SubjectName is missing");
+            return;
         }
 
-        // TODO XPATH problem hodnoty elementov ds:X509IssuerSerial a ds:X509SubjectName súhlasia s príslušnými hodnatami v certifikáte, ktorý sa nachádza v ds:X509Certificate
+        if (x509IssuerSerialNumber == null) {
+            System.out.println("Check 5: Fail - element X509SerialNumber is missing");
+            return;
+        }
+
+        StreamResult result = new StreamResult(new StringWriter());
+        Transformer transformer = null;
+        InputStream certData =null;
+        X509Certificate certificate =null;
+
+        try {
+//
+            byte[] bencoded = javax.xml.bind.DatatypeConverter.parseBase64Binary(x509Certificate.getFirstChild().getNodeValue());
+            certData = new ByteArrayInputStream(bencoded);
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            certificate = (X509Certificate)cf.generateCertificate(certData);
+        }catch (java.security.cert.CertificateException e) {
+            System.out.println("Check 8: Fail - It was impossible to construct certificate from file");
+            return;
+        }
+
+        if (certificate!=null){
+//            String certificateIssuerName = certificate.getIssuerDN().toString();
+            String certificateSerialNumber = certificate.getSerialNumber().toString();
+            String certificateSubjectName = certificate.	getSubjectDN().toString();
+            if (!certificateSerialNumber.equals(x509IssuerSerialNumber.getFirstChild().getNodeValue())){
+                System.out.println("Check 8: Fail - Serial number is not in certificate");
+                return;
+            }
+            if (!certificateSubjectName.equals(x509SubjectName.getFirstChild().getNodeValue())){
+                System.out.println("Check 8: Fail - Subject name is not in certificate");
+                return;
+            }
+        }
+        System.out.println("Check 8 : OK - verifyKeyInfo is valid");
+    }
+
+    void verifySignatureProperties() {
 
 
         // 	overenie obsahu ds:SignatureProperties
@@ -272,39 +402,11 @@ public class SignatureVerifier {
         if (!sigProperty2.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))) {
             System.out.println("Check 5: Fail - SignatureProperty 2 does not have target attribute or is not referencing signature id");
         }
-
+        // TODO XPATH problem hodnoty elementov ds:X509IssuerSerial a ds:X509SubjectName súhlasia s príslušnými hodnatami v certifikáte, ktorý sa nachádza v ds:X509Certificate
         System.out.println("Check 5 : OK - verifySignature is valid");
 
-    }
-
-    void verifySignatureValue() {
 
 
-        Element signatureValueElement = (Element) root.getElementsByTagName("ds:SignatureValue").item(0);
-
-        if (signatureValueElement == null) {
-            System.out.println( " Check X: Fail - Element ds:SignatureValue sa nenašiel");
-            return;
-
-        }
-
-        if (!signatureValueElement.hasAttribute("Id")) {
-            System.out.println( " Check X: Fail - Element ds:SignatureValue neobsahuje atribút Id ");
-            return;
-        }
-
-        System.out.println("Check 6 : OK - verifySignatureValue is valid");
-    }
-
-    void verifySignedInfoReferences() {
-        System.out.println("Check 7 : OK - verifySignedInfoReferences is valid");
-    }
-
-    void verifyKeyInfo() {
-        System.out.println("Check 8 : OK - verifyKeyInfo is valid");
-    }
-
-    void verifySignatureProperties() {
         System.out.println("Check 9 : OK - verifySignatureProperties is valid");
     }
 
@@ -386,14 +488,6 @@ public class SignatureVerifier {
                     } catch (TransformerException e) {
                         e.printStackTrace();
                     }
-
-//                        TransformerFactory transformerFactory = TransformerFactory.newInstance();
-//                        Transformer transformer = transformerFactory.newTransformer();
-//                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-//                        StreamResult result=new StreamResult(baos);
-//                        DOMSource source = new DOMSource(referencedObject);
-//                        transformer.transform( source, result);
-//                        objectElementBytes = baos.toByteArray();
                 }
 
                 Element digest = (Element) reference.getElementsByTagName("ds:DigestMethod").item(0);
