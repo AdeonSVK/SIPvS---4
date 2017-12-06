@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="jce-jdk13-158">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/jce-jdk13-158.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

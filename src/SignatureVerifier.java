@@ -6,18 +6,48 @@ import com.sun.org.apache.xml.internal.security.c14n.InvalidCanonicalizerExcepti
 import com.sun.org.apache.xpath.internal.XPathAPI;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.w3c.dom.xpath.XPathException;
 import org.xml.sax.SAXException;
+
+import org.bouncycastle.tsp.TimeStampToken;
+import org.bouncycastle.cms.CMSException;
+import org.bouncycastle.cms.CMSSignedData;
+import org.bouncycastle.tsp.TSPException;
+
+import org.bouncycastle.jce.provider.X509CertificateObject;
+import org.bouncycastle.asn1.x509.Certificate;
+import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.ASN1Sequence;
+import java.io.ByteArrayInputStream;
+
+import java.security.cert.CRLException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509CRL;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.util.Store;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.math.BigInteger;
 
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import java.io.IOException;
 import java.io.StringWriter;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateExpiredException;
+import java.security.cert.CertificateNotYetValidException;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509CRLEntry;
 import java.util.*;
 
 public class SignatureVerifier {
@@ -32,7 +62,8 @@ public class SignatureVerifier {
     Element signatureProperties;
     Element signatureMethod;
     Element canonicalizationMethod;
-
+    TimeStampToken token;
+    X509CRL crl;
 
     private List<String> canonicalizationMethods = new ArrayList<String>(Arrays.asList(
 
@@ -87,6 +118,8 @@ public class SignatureVerifier {
         signatureMethod = (Element) signature.getElementsByTagName("ds:SignatureMethod").item(0);
         canonicalizationMethod = (Element) signature.getElementsByTagName("ds:CanonicalizationMethod").item(0);
 
+        token = getTimestampToken();
+        crl = getCRL();
     }
 
     void verifyRootElement() {
@@ -480,15 +513,241 @@ public class SignatureVerifier {
     }
 
     void verifyTimestamp() {
+
+        X509CertificateHolder signer = null;
+
+        Store certHolders = token.getCertificates();
+        ArrayList<X509CertificateHolder> certList = new ArrayList<>(certHolders.getMatches(null));
+
+        BigInteger serialNumToken = token.getSID().getSerialNumber();
+        X500Name issuerToken = token.getSID().getIssuer();
+
+        for (X509CertificateHolder certHolder : certList) {
+            if (certHolder.getSerialNumber().equals(serialNumToken) && certHolder.getIssuer().equals(issuerToken)){
+                signer = certHolder;
+                break;
+            }
+        }
+
+        if (signer == null){
+            System.out.println("Check 12: Fail - Timestamp certificate not present in document.");
+            return;
+        }
+
+        if (!signer.isValidOn(new Date())){
+            System.out.println("Check 12: Fail - Timestamp signature certificate is not valid at the given time.");
+            return;
+        }
+
+        if (crl.getRevokedCertificate(signer.getSerialNumber()) != null){
+            System.out.println("Check 12: Fail - Latest signature timestamp certificate is not valid against the latest valid CRL.");
+            return;
+        }
         System.out.println("Check 12: OK - verifyTimestamp is valid");
     }
 
     void verifyMessageImprint() {
+
+        byte[] messageImprint = token.getTimeStampInfo().getMessageImprintDigest();
+        String hashAlg = token.getTimeStampInfo().getHashAlgorithm().getAlgorithm().getId();
+
+        Map<String, String> nsMap = new HashMap<>();
+        nsMap.put("ds", "http://www.w3.org/2000/09/xmldsig#");
+
+        Node signatureValueNode = null;
+
+        try {
+            signatureValueNode = signature.getElementsByTagName("ds:SignatureValue").item(0);
+        } catch (XPathException e) {
+            System.out.println("Check 13: Fail - Element ds:SignatureValue not found.");
+            e.printStackTrace();
+            return;
+        }
+
+        if (signatureValueNode == null){
+            System.out.println("Check 13: Fail - Element ds:SignatureValue not found.");
+            return;
+        }
+
+        byte[] signatureValue = Base64.decode(signatureValueNode.getTextContent());
+
+        MessageDigest messageDigest = null;
+        try {
+            messageDigest = MessageDigest.getInstance(hashAlg);
+        } catch (NoSuchAlgorithmException e) {
+            System.out.println("Check 13: Fail - Unsupported algorithm in message digest.");
+            return;
+        }
+
+        if (!Arrays.equals(messageImprint, messageDigest.digest(signatureValue))){
+            System.out.println("Check 13: Fail - MessageImprint from timestamp does not match ds:SignatureValue.");
+            return;
+        }
+
         System.out.println("Check 13: OK - verifyMessageImprint is valid");
     }
 
     void verifyCertificate() {
+
+        Node certificateNode = null;
+
+        if (token == null) {
+            System.out.println("Check 14: Fail - Failed to get timestamp token.");
+        }
+
+        if (crl == null) {
+            System.out.println("Check 14: Fail - Failed to get CRL.");
+        }
+
+        try {
+            certificateNode = signature.getElementsByTagName("ds:X509Certificate").item(0);
+        } catch (XPathException e) {
+            e.printStackTrace();
+            System.out.println("Check 14: Fail - invalid path to certificate");
+            return;
+        }
+
+        if (certificateNode == null){
+            System.out.println("Check 14: Fail - Element ds:X509Certificate not found.");
+            return;
+        }
+
+        X509CertificateObject cert = null;
+        ASN1InputStream asn1is = null;
+
+        try {
+            asn1is = new ASN1InputStream(new ByteArrayInputStream(Base64.decode(certificateNode.getTextContent())));
+            ASN1Sequence sq = (ASN1Sequence) asn1is.readObject();
+            cert = new X509CertificateObject(Certificate.getInstance(sq));
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.out.println("Check 14: Fail - Creating certificate object failed.");
+            return;
+        } catch (CertificateParsingException e) {
+            e.printStackTrace();
+            System.out.println("Check 14: Fail - Parsing certificate object failed.");
+            return;
+        } finally {
+            if (asn1is != null) {
+                try {
+                    asn1is.close();
+                } catch (IOException e) {
+                    System.out.println("Check 14: Fail - Cannot read document certificate.");
+                    return;
+                }
+            }
+        }
+
+        try {
+            cert.checkValidity(token.getTimeStampInfo().getGenTime());
+        } catch (CertificateNotYetValidException e) {
+            System.out.println("Check 14: Fail - Document certificate had not been valid at the time of signing.");
+            return;
+        } catch (CertificateExpiredException e) {
+            System.out.println("Check 14: Fail - Document certificate has expired.");
+            return;
+        }
+
+        X509CRLEntry entry = crl.getRevokedCertificate(cert.getSerialNumber());
+        if (entry != null && entry.getRevocationDate().before(token.getTimeStampInfo().getGenTime())) {
+            System.out.println("Check 14: Fail - Certificate was terminated at the time of signing.");
+            return;
+        }
+
         System.out.println("Check 14: OK - verifyCertificate is valid");
+    }
+
+    private TimeStampToken getTimestampToken() {
+
+        TimeStampToken token = null;
+
+        Node timestamp = null;
+        Map<String, String> nsMap = new HashMap<>();
+        nsMap.put("xades", "http://uri.etsi.org/01903/v1.3.2#");
+        Node ns;
+
+        try {
+            //timestamp = XPathAPI.selectSingleNode(this.mDocument, "//xades:EncapsulatedTimeStamp");
+            timestamp = signature.getElementsByTagName("xades:EncapsulatedTimeStamp").item(0);
+        } catch (XPathException e) {
+            e.printStackTrace();
+        }
+
+        if (timestamp == null){
+            System.out.println("Document doesn't contain a timestamp.");
+            return null;
+        }
+
+        try {
+            token = new TimeStampToken(new CMSSignedData(Base64.decode(timestamp.getTextContent())));
+        } catch (TSPException | IOException | CMSException e) {
+            e.printStackTrace();
+        }
+
+        return token;
+    }
+
+    private X509CRL getCRL() {
+
+        ByteArrayInputStream crlData = getDataFromUrl("http://test.ditec.sk/DTCCACrl/DTCCACrl.crl");
+        CertificateFactory certFactory = null;
+        X509CRL crl = null;
+
+        if (crlData == null){
+            System.out.println("Downloading CRL failed.");
+            return null;
+        }
+
+        try {
+            certFactory = CertificateFactory.getInstance("X.509");
+        } catch (CertificateException e) {
+            System.out.println("Creating CertificateFactory instance failed.");
+        }
+
+        try {
+            crl = (X509CRL) certFactory.generateCRL(crlData);
+        } catch (CRLException e) {
+            System.out.println("Failed to get CRL from the data received.");
+        }
+
+        return crl;
+    }
+
+    private ByteArrayInputStream getDataFromUrl(String url) {
+
+        URL urlHandler = null;
+        try {
+            urlHandler = new URL(url);
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        InputStream is = null;
+        try {
+            is = urlHandler.openStream();
+            byte[] byteChunk = new byte[4096];
+            int n;
+
+            while ( (n = is.read(byteChunk)) > 0 ) {
+                baos.write(byteChunk, 0, n);
+            }
+        }
+        catch (IOException e) {
+            System.err.printf ("Failed while reading bytes from %s: %s", urlHandler.toExternalForm(), e.getMessage());
+            return null;
+        }
+        finally {
+            if (is != null) {
+                try {
+                    is.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        return new ByteArrayInputStream(baos.toByteArray());
     }
 
     boolean assertElementAttributeValue(Element element, String attribute, String expectedValue) {
