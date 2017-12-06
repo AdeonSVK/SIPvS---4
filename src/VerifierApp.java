@@ -44,7 +44,7 @@ class VerifierApp {
 
 
     public static void main(String[] args) {
-        Document doc = openFile("documents/02XadesT.xml");
+        Document doc = openFile("documents/XadesT.xml");
         runTests(doc);
     }
 }

@@ -1,4 +1,5 @@
-import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
+//import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
+
 import com.sun.org.apache.xml.internal.security.Init;
 import com.sun.org.apache.xml.internal.security.c14n.CanonicalizationException;
 import com.sun.org.apache.xml.internal.security.c14n.Canonicalizer;
@@ -11,7 +12,6 @@ import org.w3c.dom.NodeList;
 import org.w3c.dom.xpath.XPathException;
 import org.xml.sax.SAXException;
 
-<<<<<<< HEAD
 import org.bouncycastle.tsp.TimeStampToken;
 import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSSignedData;
@@ -21,15 +21,19 @@ import org.bouncycastle.jce.provider.X509CertificateObject;
 import org.bouncycastle.asn1.x509.Certificate;
 import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1Sequence;
+
 import java.io.ByteArrayInputStream;
 
+import java.security.*;
 import java.security.cert.CRLException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509CRL;
+
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.util.Store;
+import org.bouncycastle.util.encoders.Base64;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -38,29 +42,22 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.math.BigInteger;
 
-=======
-import javax.security.cert.CertificateException;
->>>>>>> ba93891fbff614338411a12379f0599c9b824988
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-<<<<<<< HEAD
+import javax.xml.xpath.XPathExpressionException;
 import java.io.StringWriter;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509CRLEntry;
-=======
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
->>>>>>> ba93891fbff614338411a12379f0599c9b824988
 import java.util.*;
 
 
@@ -126,7 +123,32 @@ public class SignatureVerifier {
             }
     ));
 
+    private static final Map<String, String> DIGEST_ALG;
+
+    static {
+        DIGEST_ALG = new HashMap<String, String>();
+        DIGEST_ALG.put("http://www.w3.org/2000/09/xmldsig#sha1", "SHA-1");
+        DIGEST_ALG.put("http://www.w3.org/2001/04/xmldsig-more#sha224", "SHA-224");
+        DIGEST_ALG.put("http://www.w3.org/2001/04/xmlenc#sha256", "SHA-256");
+        DIGEST_ALG.put("http://www.w3.org/2001/04/xmldsig-more#sha384", "SHA-384");
+        DIGEST_ALG.put("http://www.w3.org/2001/04/xmlenc#sha512", "SHA-512");
+    }
+
+    private static final Map<String, String> SIGN_ALG;
+
+    static {
+        SIGN_ALG = new HashMap<String, String>();
+        SIGN_ALG.put("http://www.w3.org/2000/09/xmldsig#dsa-sha1", "SHA1withDSA");
+        SIGN_ALG.put("http://www.w3.org/2000/09/xmldsig#rsa-sha1", "SHA1withRSA/ISO9796-2");
+        SIGN_ALG.put("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256", "SHA256withRSA");
+        SIGN_ALG.put("http://www.w3.org/2001/04/xmldsig-more#rsa-sha384", "SHA384withRSA");
+        SIGN_ALG.put("http://www.w3.org/2001/04/xmldsig-more#rsa-sha512", "SHA512withRSA");
+    }
+
     public SignatureVerifier(Document document) {
+
+        com.sun.org.apache.xml.internal.security.Init.init();
+
         mDocument = document;
 
         mDocument.getDocumentElement().normalize();
@@ -240,7 +262,219 @@ public class SignatureVerifier {
 
     void verifyCore() {
         // TODO Kontrola 4 - Core validation
+        verifyCoreReferencesAndDigestValue();
+    }
+
+
+    public void verifyCoreReferencesAndDigestValue() {
+
+        NodeList referencesElements = signedInfo.getElementsByTagName("ds:Reference");
+
+//        try {
+//            referencesElements = XPathAPI.selectNodeList(document.getDocumentElement(), "//ds:Signature/ds:SignedInfo/ds:Reference");
+//
+//        } catch (XPathException e) {
+//        } catch (XPathException e) {
+//
+//            throw new DocumentVerificationException(
+//                    "Chyba pri ziskavani elementu ds:Signature/ds:SignedInfo/ds:Reference. Element nebol v dokumente najdeny");
+//        }
+
+        for (int i = 0; i < referencesElements.getLength(); i++) {
+
+            Element referenceElement = (Element) referencesElements.item(i);
+            String uri = referenceElement.getAttribute("URI").substring(1);
+
+            Element manifestElement = findByAttributeValue("ds:Manifest", "Id", uri);
+
+            if (manifestElement == null) {
+                continue;
+            }
+
+            Element digestValueElement = (Element) referenceElement.getElementsByTagName("ds:DigestValue").item(0);
+            String expectedDigestValue = digestValueElement.getTextContent();
+
+            Element digestMethodElement = (Element) referenceElement.getElementsByTagName("ds:DigestMethod").item(0);
+
+            if (!assertElementAttributeValue(digestMethodElement, "Algorithm", digestMethods)) {
+
+                System.out.println("Check 4: Fail - Atribút Algorithm elementu ds:DigestMethod (" + digestMethodElement.getAttribute("Algorithm") + ") neobsahuje URI niektorého z podporovaných algoritmov");
+                return;
+            }
+
+            String digestMethod = digestMethodElement.getAttribute("Algorithm");
+            digestMethod = DIGEST_ALG.get(digestMethod);
+
+
+            byte[] manifestElementBytes = null;
+
+            try {
+                manifestElementBytes = fromElementToString(manifestElement).getBytes();
+
+            } catch (TransformerException e) {
+
+                System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri tranformacii z Element do String");
+                return;
+            }
+
+            NodeList transformsElements = manifestElement.getElementsByTagName("ds:Transforms");
+
+            for (int j = 0; j < transformsElements.getLength(); j++) {
+
+                Element transformsElement = (Element) transformsElements.item(j);
+                Element transformElement = (Element) transformsElement.getElementsByTagName("ds:Transform").item(0);
+                String transformMethod = transformElement.getAttribute("Algorithm");
+
+                if ("http://www.w3.org/TR/2001/REC-xml-c14n-20010315".equals(transformMethod)) {
+
+                    try {
+                        Canonicalizer canonicalizer = Canonicalizer.getInstance(transformMethod);
+                        manifestElementBytes = canonicalizer.canonicalize(manifestElementBytes);
+
+                    } catch (SAXException | InvalidCanonicalizerException | CanonicalizationException | ParserConfigurationException | IOException e) {
+
+                        System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri kanonikalizacii");
+                        return;
+                    }
+                }
+            }
+
+            MessageDigest messageDigest = null;
+
+            try {
+                messageDigest = MessageDigest.getInstance(digestMethod);
+
+            } catch (NoSuchAlgorithmException e) {
+
+                System.out.println("Check 4: Fail - Core validation zlyhala. Neznamy algoritmus " + digestMethod);
+                return;
+            }
+            String actualDigestValue = new String(Base64.encode(messageDigest.digest(manifestElementBytes)));
+
+
+            if (expectedDigestValue.equals(actualDigestValue) == false) {
+
+                System.out.println("Check 4: Fail - Core validation zlyhala. " + "Hodnota ds:DigestValue elementu ds:Reference sa nezhoduje s hash hodnotou elementu ds:Manifest");
+                return;
+            }
+
+        }
+
+        verifyCoreSignatureValue();
+        return;
+    }
+
+    /*
+     * Core validation (podľa špecifikácie XML Signature)
+     * Kanonikalizácia ds:SignedInfo a overenie hodnoty ds:SignatureValue
+     * pomocou pripojeného podpisového certifikátu v ds:KeyInfo
+     */
+    public void verifyCoreSignatureValue() {
+
+        Element signatureElement = (Element) mDocument.getElementsByTagName("ds:Signature").item(0);
+
+        Element signedInfoElement = (Element) signatureElement.getElementsByTagName("ds:SignedInfo").item(0);
+        Element canonicalizationMethodElement = (Element) signedInfoElement.getElementsByTagName("ds:CanonicalizationMethod").item(0);
+        Element signatureMethodElement = (Element) signedInfoElement.getElementsByTagName("ds:SignatureMethod").item(0);
+        Element signatureValueElement = (Element) signatureElement.getElementsByTagName("ds:SignatureValue").item(0);
+
+
+        byte[] signedInfoElementBytes = null;
+        try {
+            signedInfoElementBytes = fromElementToString(signedInfoElement).getBytes();
+        } catch (TransformerException e) {
+
+            System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri tranformacii z Element do String");
+            return;
+        }
+
+        String canonicalizationMethod = canonicalizationMethodElement.getAttribute("Algorithm");
+
+        try {
+            Canonicalizer canonicalizer = Canonicalizer.getInstance(canonicalizationMethod);
+            signedInfoElementBytes = canonicalizer.canonicalize(signedInfoElementBytes);
+
+        } catch (SAXException | InvalidCanonicalizerException | CanonicalizationException | ParserConfigurationException | IOException e) {
+
+            System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri kanonikalizacii");
+            return;
+        }
+
+        Element x509Certificate = (Element) keyInfo.getElementsByTagName("ds:X509Certificate").item(0);
+        if (x509Certificate == null) {
+            System.out.println("Check 4: Fail - element x509Certificate is missing");
+            return;
+        }
+
+        Signature signer = null;
+        X509Certificate certificate = null;
+        try {
+
+
+            byte[] bencoded = javax.xml.bind.DatatypeConverter.parseBase64Binary(x509Certificate.getFirstChild().getNodeValue());
+
+            InputStream certData = new ByteArrayInputStream(bencoded);
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            certificate = (X509Certificate) cf.generateCertificate(certData);
+//            certificate = getCertificate();
+
+            if (certificate == null) {
+                System.out.println("Check 4: Fail - X509 certifikát sa v dokumente nepodarilo nájsť");
+                return;
+            }
+
+//        } catch (XPathExpressionException e) {
+//
+//            System.out.println("Check 4: Fail - X509 certifikát sa v dokumente nepodarilo nájsť");
+//            return;
+        } catch (CertificateException e) {
+            e.printStackTrace();
+        }
+
+        String signatureMethod = signatureMethodElement.getAttribute("Algorithm");
+        signatureMethod = SIGN_ALG.get(signatureMethod);
+
+
+        if (signatureMethod == null) {
+            System.out.println("Check 4 : Fail - Chyba pri inicializacii signeru");
+            return;
+        }
+
+
+        try {
+
+            com.sun.org.apache.xml.internal.security.Init.init();
+            signer = Signature.getInstance(signatureMethod);
+//            System.out.println("Public key " + certificate.getPublicKey());
+            signer.initVerify(certificate.getPublicKey());
+            signer.update(signedInfoElementBytes);
+        } catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
+            System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri inicializacii prace s digitalnym podpisom");
+            return;
+        }
+
+        byte[] signatureValueBytes = signatureValueElement.getTextContent().getBytes();
+        byte[] decodedSignatureValueBytes = Base64.decode(signatureValueBytes);
+
+        boolean verificationResult = false;
+
+        try {
+            verificationResult = signer.verify(decodedSignatureValueBytes);
+
+        } catch (SignatureException e) {
+
+            System.out.println("Check 4: Fail - Core validation zlyhala. Chyba pri verifikacii digitalneho podpisu");
+            return;
+        }
+
+        if (verificationResult == false) {
+
+            System.out.println("Check 4: Fail - Podpisana hodnota ds:SignedInfo sa nezhoduje s hodnotou v elemente ds:SignatureValue");
+            return;
+        }
+
         System.out.println("Check 4 : OK - verifyCore is valid");
+        return;
     }
 
 
@@ -248,21 +482,17 @@ public class SignatureVerifier {
 
         if (!signature.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - signature id attribute is missing");
+            return;
         }
         if (!signature.hasAttribute("xmlns:ds")) {
             System.out.println("Check 5: Fail - signature xmlns:ds attribute is missing");
+            return;
         }
         // 	ds:SignatureValue
         if (!signatureValue.hasAttribute("Id")) {
             System.out.println("Check 5: Fail - signatureValue id attribute is missing");
+            return;
         }
-
-
-
-
-
-
-
 
 
     }
@@ -273,13 +503,13 @@ public class SignatureVerifier {
         Element signatureValueElement = (Element) root.getElementsByTagName("ds:SignatureValue").item(0);
 
         if (signatureValueElement == null) {
-            System.out.println( " Check X: Fail - Element ds:SignatureValue sa nenašiel");
+            System.out.println("Check 6: Fail - Element ds:SignatureValue sa nenašiel");
             return;
 
         }
 
         if (!signatureValueElement.hasAttribute("Id")) {
-            System.out.println( " Check X: Fail - Element ds:SignatureValue neobsahuje atribút Id ");
+            System.out.println("Check 6: Fail - Element ds:SignatureValue neobsahuje atribút Id ");
             return;
         }
 
@@ -294,7 +524,7 @@ public class SignatureVerifier {
         boolean signedPropertiesPresent = false;
 
 
-        for(int i=0;i<references.getLength();i++) {
+        for (int i = 0; i < references.getLength(); i++) {
             Element reference = (Element) references.item(i);
             if (!reference.hasAttribute("URI")) {
                 System.out.println("Check 7: Fail - URI attribute of reference is missing");
@@ -304,31 +534,31 @@ public class SignatureVerifier {
 
             String URI = reference.getAttribute("URI").substring(1);
             try {
-                referencedNode = XPathAPI.selectSingleNode(mDocument.getDocumentElement(), "//*[@Id=\""+URI+"\"]");
+                referencedNode = XPathAPI.selectSingleNode(mDocument.getDocumentElement(), "//*[@Id=\"" + URI + "\"]");
             } catch (TransformerException e) {
                 e.printStackTrace();
             }
-            if (referencedNode==null){
+            if (referencedNode == null) {
                 System.out.println("Check 7: Fail - Referenced element doesnt exist");
                 return;
             }
 
-            if (referencedNode.getNodeName().equals("xades:SignedProperties")){
+            if (referencedNode.getNodeName().equals("xades:SignedProperties")) {
                 signedPropertiesPresent = true;
             }
-            if (referencedNode.getNodeName().equals("ds:SignatureProperties")){
+            if (referencedNode.getNodeName().equals("ds:SignatureProperties")) {
                 signaturePropertiesPresent = true;
             }
-            if (referencedNode.getNodeName().equals("ds:KeyInfo")){
+            if (referencedNode.getNodeName().equals("ds:KeyInfo")) {
                 keyInfoPresent = true;
             }
 
-            if (!validReferences.contains(referencedNode.getNodeName())){
+            if (!validReferences.contains(referencedNode.getNodeName())) {
                 System.out.println("Check 7: Fail - Referenced element is not a valid object");
                 return;
             }
         }
-        if(!signedPropertiesPresent || !signaturePropertiesPresent || !keyInfoPresent){
+        if (!signedPropertiesPresent || !signaturePropertiesPresent || !keyInfoPresent) {
             System.out.println("Check 7: Fail - One of the mandatory references is missing in signed info");
             return;
         }
@@ -337,7 +567,7 @@ public class SignatureVerifier {
 
     void verifyKeyInfo() {
         if (!keyInfo.hasAttribute("Id")) {
-            System.out.println("Check 5: Fail - keyInfo id attribute is missing");
+            System.out.println("Check 8: Fail - keyInfo id attribute is missing");
             return;
         }
 
@@ -348,52 +578,54 @@ public class SignatureVerifier {
         Element x509SubjectName = (Element) keyInfo.getElementsByTagName("ds:X509SubjectName").item(0);
 
         if (x509Data == null) {
-            System.out.println("Check 5: Fail - element x509Data is missing");
+            System.out.println("Check 8: Fail - element x509Data is missing");
             return;
         }
+
+
         if (x509Certificate == null) {
-            System.out.println("Check 5: Fail - element x509Certificate is missing");
+            System.out.println("Check 8: Fail - element x509Certificate is missing");
             return;
         }
         if (x509IssuerSerial == null) {
-            System.out.println("Check 5: Fail - element x509IssuerSerial is missing");
+            System.out.println("Check 8: Fail - element x509IssuerSerial is missing");
             return;
         }
         if (x509SubjectName == null) {
-            System.out.println("Check 5: Fail - element x509SubjectName is missing");
+            System.out.println("Check 8: Fail - element x509SubjectName is missing");
             return;
         }
 
         if (x509IssuerSerialNumber == null) {
-            System.out.println("Check 5: Fail - element X509SerialNumber is missing");
+            System.out.println("Check 8: Fail - element X509SerialNumber is missing");
             return;
         }
 
         StreamResult result = new StreamResult(new StringWriter());
         Transformer transformer = null;
-        InputStream certData =null;
-        X509Certificate certificate =null;
+        InputStream certData = null;
+        X509Certificate certificate = null;
 
         try {
 //
             byte[] bencoded = javax.xml.bind.DatatypeConverter.parseBase64Binary(x509Certificate.getFirstChild().getNodeValue());
             certData = new ByteArrayInputStream(bencoded);
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            certificate = (X509Certificate)cf.generateCertificate(certData);
-        }catch (java.security.cert.CertificateException e) {
+            certificate = (X509Certificate) cf.generateCertificate(certData);
+        } catch (java.security.cert.CertificateException e) {
             System.out.println("Check 8: Fail - It was impossible to construct certificate from file");
             return;
         }
 
-        if (certificate!=null){
+        if (certificate != null) {
 //            String certificateIssuerName = certificate.getIssuerDN().toString();
             String certificateSerialNumber = certificate.getSerialNumber().toString();
-            String certificateSubjectName = certificate.	getSubjectDN().toString();
-            if (!certificateSerialNumber.equals(x509IssuerSerialNumber.getFirstChild().getNodeValue())){
+            String certificateSubjectName = certificate.getSubjectDN().toString();
+            if (!certificateSerialNumber.equals(x509IssuerSerialNumber.getFirstChild().getNodeValue())) {
                 System.out.println("Check 8: Fail - Serial number is not in certificate");
                 return;
             }
-            if (!certificateSubjectName.equals(x509SubjectName.getFirstChild().getNodeValue())){
+            if (!certificateSubjectName.equals(x509SubjectName.getFirstChild().getNodeValue())) {
                 System.out.println("Check 8: Fail - Subject name is not in certificate");
                 return;
             }
@@ -406,7 +638,8 @@ public class SignatureVerifier {
 
         // 	overenie obsahu ds:SignatureProperties
         if (!signatureProperties.hasAttribute("Id")) {
-            System.out.println("Check 5: Fail - signatureProperties id is missing");
+            System.out.println("Check 9: Fail - signatureProperties id is missing");
+            return;
         }
 
         boolean sigVersion = false;
@@ -415,8 +648,14 @@ public class SignatureVerifier {
         Element sigProperty1 = (Element) signatureProperties.getElementsByTagName("ds:SignatureProperty").item(0);
         Element sigProperty2 = (Element) signatureProperties.getElementsByTagName("ds:SignatureProperty").item(1);
 
-        if (sigProperty1 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
-        if (sigProperty2 == null) System.out.println("Check 5: Fail - element signatureProperty is missing");
+        if (sigProperty1 == null) {
+            System.out.println("Check 9: Fail - element signatureProperty is missing");
+            return;
+        }
+        if (sigProperty2 == null) {
+            System.out.println("Check 9: Fail - element signatureProperty is missing");
+            return;
+        }
 
         if (sigProperty1 != null && sigProperty2 != null) {
             if (sigProperty1.getElementsByTagName("xzep:SignatureVersion") != null) {
@@ -433,20 +672,26 @@ public class SignatureVerifier {
                 productInfo = true;
             }
 
-            if (!sigVersion) System.out.println("Check 5: Fail - element xzep:SignatureVersion  is missing");
-            if (!productInfo) System.out.println("Check 5: Fail - xzep:ProductInfos");
+            if (!sigVersion) {
+                System.out.println("Check 9: Fail - element xzep:SignatureVersion  is missing");
+                return;
+            }
+            if (!productInfo) {
+                System.out.println("Check 9: Fail - xzep:ProductInfos");
+                return;
+            }
         }
 
         if (!sigProperty1.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))) {
-            System.out.println("Check 5: Fail - SignatureProperty 1 does not have target attribute or is not referencing signature id");
+            System.out.println("Check 9: Fail - SignatureProperty 1 does not have target attribute or is not referencing signature id");
+            return;
+
         }
 
         if (!sigProperty2.hasAttribute("Target") || !sigProperty1.getAttribute("Target").substring(1).equals(signature.getAttribute("Id"))) {
-            System.out.println("Check 5: Fail - SignatureProperty 2 does not have target attribute or is not referencing signature id");
+            System.out.println("Check 9: Fail - SignatureProperty 2 does not have target attribute or is not referencing signature id");
+            return;
         }
-        // TODO XPATH problem hodnoty elementov ds:X509IssuerSerial a ds:X509SubjectName súhlasia s príslušnými hodnatami v certifikáte, ktorý sa nachádza v ds:X509Certificate
-        System.out.println("Check 5 : OK - verifySignature is valid");
-
 
 
         System.out.println("Check 9 : OK - verifySignatureProperties is valid");
@@ -462,8 +707,6 @@ public class SignatureVerifier {
                 System.out.println("Check 10: Fail - manifest id attribute is missing");
                 return;
             }
-
-
 
 
             NodeList references = manifest.getElementsByTagName("ds:Reference");
@@ -511,8 +754,6 @@ public class SignatureVerifier {
                 }
 
 
-
-
                 if (referencedObject == null) {
                     System.out.println("Check 11: Fail - Referenced object from manifest is either missing or has missing or invalid Id");
                     return;
@@ -549,36 +790,37 @@ public class SignatureVerifier {
 
                 Canonicalizer canonicalizer = null;
                 Element transform = (Element) reference.getElementsByTagName("ds:Transform").item(0);
-                if (transform.hasAttribute("Algorithm") && transformMethods.contains(transform.getAttribute("Algorithm"))) {
-                    transformMethod = transform.getAttribute("Algorithm");
-
-                    if (transformMethod.equals("http://www.w3.org/2000/09/xmldsig#base64"))
-                        objectElementBytes = Base64.decode(String.valueOf(objectElementBytes));
-                    if (transformMethod.equals("http://www.w3.org/TR/2001/REC-xml-c14n-20010315")) {
-
-                        try {
-                            Init.init();
-                            canonicalizer = Canonicalizer.getInstance(transformMethod);
-                            objectElementBytes = canonicalizer.canonicalize(objectElementBytes);
-                            canonicalizationSuccessful = true;
-
-                        } catch (InvalidCanonicalizerException e1) {
-                            System.out.println("Check 11: Fail - Invalid Canonicalizing method");
-                            return;
-                        } catch (CanonicalizationException e) {
-                            e.printStackTrace();
-                        } catch (SAXException e) {
-                            e.printStackTrace();
-                        } catch (ParserConfigurationException e) {
-                            e.printStackTrace();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } else {
-                    System.out.println("Check 11: Fail - Transform algorithm is missing or is not supported");
+                if(!transform.hasAttribute("Algorithm") || !transformMethods.contains(transform.getAttribute("Algorithm"))){
+                    System.out.println("Check 11: Fail - Transform algorithm is invalid");
                     return;
                 }
+
+                transformMethod = transform.getAttribute("Algorithm");
+
+                if (transformMethod.equals("http://www.w3.org/2000/09/xmldsig#base64"))
+                    objectElementBytes = Base64.decode(String.valueOf(objectElementBytes));
+                if (transformMethod.equals("http://www.w3.org/TR/2001/REC-xml-c14n-20010315")) {
+
+                    try {
+                        Init.init();
+                        canonicalizer = Canonicalizer.getInstance(transformMethod);
+                        objectElementBytes = canonicalizer.canonicalize(objectElementBytes);
+                        canonicalizationSuccessful = true;
+
+                    } catch (InvalidCanonicalizerException e1) {
+                        System.out.println("Check 11: Fail - Invalid Canonicalizing method");
+                        return;
+                    } catch (CanonicalizationException e) {
+                        e.printStackTrace();
+                    } catch (SAXException e) {
+                        e.printStackTrace();
+                    } catch (ParserConfigurationException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+
 
 
                 if (referencedObject != null && digAlg != null && transformMethod != null && objectElementBytes != null && digestValueElement != null && canonicalizationSuccessful != false) {
@@ -604,7 +846,7 @@ public class SignatureVerifier {
 
 
         System.out.println("Check 10: OK - verifyManifest is valid");
-        if (manifestReferences==true){
+        if (manifestReferences == true) {
             System.out.println("Check 11: OK - verifyManifestReferences is valid");
         }
 
@@ -626,23 +868,23 @@ public class SignatureVerifier {
         X500Name issuerToken = token.getSID().getIssuer();
 
         for (X509CertificateHolder certHolder : certList) {
-            if (certHolder.getSerialNumber().equals(serialNumToken) && certHolder.getIssuer().equals(issuerToken)){
+            if (certHolder.getSerialNumber().equals(serialNumToken) && certHolder.getIssuer().equals(issuerToken)) {
                 signer = certHolder;
                 break;
             }
         }
 
-        if (signer == null){
+        if (signer == null) {
             System.out.println("Check 12: Fail - Timestamp certificate not present in document.");
             return;
         }
 
-        if (!signer.isValidOn(new Date())){
+        if (!signer.isValidOn(new Date())) {
             System.out.println("Check 12: Fail - Timestamp signature certificate is not valid at the given time.");
             return;
         }
 
-        if (crl.getRevokedCertificate(signer.getSerialNumber()) != null){
+        if (crl.getRevokedCertificate(signer.getSerialNumber()) != null) {
             System.out.println("Check 12: Fail - Latest signature timestamp certificate is not valid against the latest valid CRL.");
             return;
         }
@@ -667,7 +909,7 @@ public class SignatureVerifier {
             return;
         }
 
-        if (signatureValueNode == null){
+        if (signatureValueNode == null) {
             System.out.println("Check 13: Fail - Element ds:SignatureValue not found.");
             return;
         }
@@ -682,7 +924,7 @@ public class SignatureVerifier {
             return;
         }
 
-        if (!Arrays.equals(messageImprint, messageDigest.digest(signatureValue))){
+        if (!Arrays.equals(messageImprint, messageDigest.digest(signatureValue))) {
             System.out.println("Check 13: Fail - MessageImprint from timestamp does not match ds:SignatureValue.");
             return;
         }
@@ -710,7 +952,7 @@ public class SignatureVerifier {
             return;
         }
 
-        if (certificateNode == null){
+        if (certificateNode == null) {
             System.out.println("Check 14: Fail - Element ds:X509Certificate not found.");
             return;
         }
@@ -776,7 +1018,7 @@ public class SignatureVerifier {
             e.printStackTrace();
         }
 
-        if (timestamp == null){
+        if (timestamp == null) {
             System.out.println("Document doesn't contain a timestamp.");
             return null;
         }
@@ -796,7 +1038,7 @@ public class SignatureVerifier {
         CertificateFactory certFactory = null;
         X509CRL crl = null;
 
-        if (crlData == null){
+        if (crlData == null) {
             System.out.println("Downloading CRL failed.");
             return null;
         }
@@ -832,15 +1074,13 @@ public class SignatureVerifier {
             byte[] byteChunk = new byte[4096];
             int n;
 
-            while ( (n = is.read(byteChunk)) > 0 ) {
+            while ((n = is.read(byteChunk)) > 0) {
                 baos.write(byteChunk, 0, n);
             }
-        }
-        catch (IOException e) {
-            System.err.printf ("Failed while reading bytes from %s: %s", urlHandler.toExternalForm(), e.getMessage());
+        } catch (IOException e) {
+            System.err.printf("Failed while reading bytes from %s: %s", urlHandler.toExternalForm(), e.getMessage());
             return null;
-        }
-        finally {
+        } finally {
             if (is != null) {
                 try {
                     is.close();
@@ -865,6 +1105,30 @@ public class SignatureVerifier {
         return false;
     }
 
+//    boolean assertElementAttributeValue(Element element, String attribute, List<String> expectedValues) {
+//
+//        for (String expectedValue : expectedValues) {
+//
+//            if (assertElementAttributeValue(element, attribute, expectedValue)) {
+//
+//                return true;
+//            }
+//        }
+//        return false;
+//    }
+
+//    boolean assertElementAttributeValue(Element element, String attribute, String expectedValue) {
+//
+//        String actualValue = element.getAttribute(attribute);
+//
+//        if (actualValue != null && actualValue.equals(expectedValue)) {
+//
+//            return true;
+//
+//        }
+//        return false;
+//    }
+
     boolean assertElementAttributeValue(Element element, String attribute, List<String> expectedValues) {
 
         for (String expectedValue : expectedValues) {
@@ -875,6 +1139,93 @@ public class SignatureVerifier {
             }
         }
         return false;
+    }
+
+    public Element findByAttributeValue(String elementType, String attributeName, String attributeValue) {
+
+        NodeList elements = this.mDocument.getElementsByTagName(elementType);
+
+        for (int i = 0; i < elements.getLength(); i++) {
+
+            Element element = (Element) elements.item(i);
+
+            if (element.hasAttribute(attributeName) && element.getAttribute(attributeName).equals(attributeValue)) {
+
+                return element;
+            }
+        }
+
+        return null;
+    }
+
+    public String fromElementToString(Element element) throws TransformerException {
+
+        StreamResult result = new StreamResult(new StringWriter());
+
+        Transformer transformer = TransformerFactory.newInstance().newTransformer();
+        transformer.transform(new DOMSource(element), result);
+        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+
+        return result.getWriter().toString();
+
+    }
+
+    public X509CertificateObject getCertificate() throws XPathExpressionException {
+
+        Element keyInfoElement = (Element) mDocument.getElementsByTagName("ds:KeyInfo").item(0);
+
+        if (keyInfoElement == null) {
+//            System.out.println("Chyba pri ziskavani certifikatu: Dokument neobsahuje element ds:KeyInfo");
+            return null;
+        }
+
+        Element x509DataElement = (Element) keyInfoElement.getElementsByTagName("ds:X509Data").item(0);
+
+        if (x509DataElement == null) {
+//            System.out.println("Chyba pri ziskavani certifikatu: Dokument neobsahuje element ds:X509Data");
+            return null;
+        }
+
+        Element x509Certificate = (Element) x509DataElement.getElementsByTagName("ds:X509Certificate").item(0);
+
+        if (x509Certificate == null) {
+//            System.out.println("Chyba pri ziskavani certifikatu: Dokument neobsahuje element ds:X509Certificate");
+            return null;
+        }
+
+        X509CertificateObject certObject = null;
+        ASN1InputStream inputStream = null;
+
+        try {
+            inputStream = new ASN1InputStream(new ByteArrayInputStream(Base64.decode(x509Certificate.getTextContent())));
+            ASN1Sequence sequence = (ASN1Sequence) inputStream.readObject();
+            certObject = new X509CertificateObject(Certificate.getInstance(sequence));
+
+        } catch (IOException | java.security.cert.CertificateParsingException e) {
+
+            System.out.println("Certifikát nebolo možné načítať");
+            return null;
+        } finally {
+
+            closeQuietly(inputStream);
+        }
+
+        return certObject;
+    }
+
+
+    private void closeQuietly(ASN1InputStream inputStream) {
+
+        if (inputStream == null) {
+            return;
+        }
+
+        try {
+            inputStream.close();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
 }
