@@ -860,12 +860,18 @@ public class SignatureVerifier {
     void verifyTimestamp() {
 
         X509CertificateHolder signer = null;
-
+        if(token == null){
+            System.out.println("Check 12: Fail -token not found ");
+            return;
+        }
         Store certHolders = token.getCertificates();
+
         ArrayList<X509CertificateHolder> certList = new ArrayList<>(certHolders.getMatches(null));
 
         BigInteger serialNumToken = token.getSID().getSerialNumber();
         X500Name issuerToken = token.getSID().getIssuer();
+
+
 
         for (X509CertificateHolder certHolder : certList) {
             if (certHolder.getSerialNumber().equals(serialNumToken) && certHolder.getIssuer().equals(issuerToken)) {
@@ -893,6 +899,10 @@ public class SignatureVerifier {
 
     void verifyMessageImprint() {
 
+        if(token == null){
+            System.out.println("Check 13: Fail -token not found ");
+            return;
+        }
         byte[] messageImprint = token.getTimeStampInfo().getMessageImprintDigest();
         String hashAlg = token.getTimeStampInfo().getHashAlgorithm().getAlgorithm().getId();
 
@@ -984,6 +994,10 @@ public class SignatureVerifier {
         }
 
         try {
+            if(token == null){
+                System.out.println("Check 14: Fail - Token not found ");
+                return;
+            }
             cert.checkValidity(token.getTimeStampInfo().getGenTime());
         } catch (CertificateNotYetValidException e) {
             System.out.println("Check 14: Fail - Document certificate had not been valid at the time of signing.");

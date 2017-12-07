@@ -42,9 +42,8 @@ class VerifierApp {
         System.out.println("Verification completed.");
     }
 
-
     public static void main(String[] args) {
-        Document doc = openFile("documents/XadesT.xml");
+        Document doc = openFile("documents/12XadesT.xml");
         runTests(doc);
     }
 }
